@@ -1,27 +1,310 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 import re
 
+
 class Route(str, Enum):
-    CONVERSATION="conversation"; CURRENT_INFORMATION="current_information"; SEARCH="search"; TOOL="tool"; MEMORY_WRITE="memory_write"; MEMORY_READ="memory_read"; MEMORY_DELETE="memory_delete"; SYSTEM_COMMAND="system_command"; EMERGENCY="emergency"
+    CONVERSATION = "conversation"
+    CURRENT_INFORMATION = "current_information"
+    SEARCH = "search"
+    TOOL = "tool"
+    MEMORY_WRITE = "memory_write"
+    MEMORY_READ = "memory_read"
+    MEMORY_DELETE = "memory_delete"
+    SYSTEM_COMMAND = "system_command"
+    EMERGENCY = "emergency"
+
+
 @dataclass(frozen=True)
 class RouteResult:
-    route: Route; explicit: bool = False; detail: str = ""
+    route: Route
+    explicit: bool = False
+    detail: str = ""
+
 
 class Router:
-    current_terms = ("latest", "current", "today", "news", "weather", "price", "score", "schedule", "version", "recent")
+    """
+    Quinn's deterministic first-pass intent router.
+
+    Important:
+    - This router should err toward SEARCH/CURRENT_INFORMATION when
+      a question is likely to depend on fresh information.
+    - The LLM is NOT responsible for deciding whether it searched.
+    """
+
+    current_terms = (
+        "latest",
+        "most recent",
+        "recent",
+        "recently",
+        "current",
+        "currently",
+        "today",
+        "tonight",
+        "now",
+        "right now",
+        "this week",
+        "this month",
+        "this year",
+        "as of",
+        "newest",
+        "updated",
+        "just announced",
+        "just released",
+        "breaking",
+        "ongoing",
+    )
+
+    news_terms = (
+        "news",
+        "controversy",
+        "controversial",
+        "what happened",
+        "what's happening",
+        "whats happening",
+        "passed away",
+        "pass away",
+        "died",
+        "death",
+        "dead",
+        "obituary",
+        "killed",
+        "resigned",
+        "arrested",
+        "arrest",
+        "accused",
+        "accusations",
+        "scandal",
+        "incident",
+        "breaking",
+        "just announced",
+    )
+
+    release_terms = (
+        "released",
+        "release",
+        "featured on",
+        "featured in",
+        "feature",
+        "new song",
+        "new album",
+        "new movie",
+        "new film",
+        "latest song",
+        "latest album",
+        "latest movie",
+        "latest film",
+    )
+
+    box_office_terms = (
+        "box office",
+        "gross",
+        "grossed",
+        "grossing",
+        "worldwide gross",
+        "domestic gross",
+        "international gross",
+        "internationally",
+        "domestically",
+    )
+
+    office_terms = (
+        "mayor",
+        "president",
+        "prime minister",
+        "governor",
+        "senator",
+        "representative",
+        "minister",
+        "chancellor",
+        "leader",
+        "ceo",
+        "chief executive",
+    )
+
+    search_verbs = (
+        "search",
+        "look up",
+        "google",
+        "find out",
+        "check online",
+        "check the web",
+        "look online",
+    )
+
     def classify(self, text: str) -> RouteResult:
         q = text.lower().strip()
-        if re.search(r"\b(stop listening|go quiet|cancel|wait|give me a minute|hold on|don't answer yet|keep listening|continue)\b", q): return RouteResult(Route.SYSTEM_COMMAND, True)
-        if re.search(r"\b(stop emergency|end emergency|cancel emergency)\b", q): return RouteResult(Route.EMERGENCY, True, "stop")
-        if re.search(r"\b(i(?:'m| am) in an emergency|activate emergency|emergency mode)\b", q): return RouteResult(Route.EMERGENCY, True, "start")
-        if "emergency" in q: return RouteResult(Route.EMERGENCY, False, "ambiguous")
-        if re.match(r"\s*(remember|don't forget|keep in mind)\b", q): return RouteResult(Route.MEMORY_WRITE, True)
-        if re.match(r"\s*forget\b", q): return RouteResult(Route.MEMORY_DELETE, True)
-        if re.search(r"\b(what do you remember|remember about|my memories)\b", q): return RouteResult(Route.MEMORY_READ, True)
-        if re.match(r"\s*(search|look up|google)\b", q): return RouteResult(Route.SEARCH, True)
-        if re.match(r"\s*(text|message|tell)\s+\w+", q): return RouteResult(Route.TOOL, True, "message")
-        if re.search(r"\b(start recording|stop recording|where am i|get location)\b", q): return RouteResult(Route.TOOL, True)
-        if any(term in q for term in self.current_terms): return RouteResult(Route.CURRENT_INFORMATION)
+
+        if not q:
+            return RouteResult(Route.CONVERSATION)
+
+        # ---------------------------------------------------------
+        # System commands
+        # ---------------------------------------------------------
+
+        if re.search(
+            r"\b("
+            r"stop listening"
+            r"|go quiet"
+            r"|cancel"
+            r"|wait"
+            r"|give me a minute"
+            r"|hold on"
+            r"|don't answer yet"
+            r"|do not answer yet"
+            r"|keep listening"
+            r"|continue listening"
+            r"|resume listening"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.SYSTEM_COMMAND, True)
+
+        # ---------------------------------------------------------
+        # Emergency
+        # ---------------------------------------------------------
+
+        if re.search(
+            r"\b("
+            r"stop emergency"
+            r"|end emergency"
+            r"|cancel emergency"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.EMERGENCY, True, "stop")
+
+        if re.search(
+            r"\b("
+            r"i(?:'m| am) in an emergency"
+            r"|activate emergency"
+            r"|emergency mode"
+            r"|start emergency"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.EMERGENCY, True, "start")
+
+        if "emergency" in q:
+            return RouteResult(Route.EMERGENCY, False, "ambiguous")
+
+        # ---------------------------------------------------------
+        # Memory
+        # ---------------------------------------------------------
+
+        if re.match(
+            r"\s*(remember|don't forget|keep in mind)\b",
+            q,
+        ):
+            return RouteResult(Route.MEMORY_WRITE, True)
+
+        if re.match(r"\s*forget\b", q):
+            return RouteResult(Route.MEMORY_DELETE, True)
+
+        if re.search(
+            r"\b("
+            r"what do you remember"
+            r"|what do you know about me"
+            r"|what have you remembered"
+            r"|what have you saved"
+            r"|my memories"
+            r"|show my memories"
+            r"|list my memories"
+            r"|what memories do you have"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.MEMORY_READ, True)
+
+        # ---------------------------------------------------------
+        # Explicit search
+        # ---------------------------------------------------------
+
+        if re.search(
+            r"\b("
+            r"search"
+            r"|look up"
+            r"|google"
+            r"|find out"
+            r"|check online"
+            r"|check the web"
+            r"|look online"
+            r")\b",
+            q,
+        ):
+            if "wikipedia" in q:
+                return RouteResult(Route.SEARCH, True, "wikipedia")
+
+            if re.search(r"\b(news|headlines|articles)\b", q):
+                return RouteResult(Route.SEARCH, True, "news")
+
+            return RouteResult(Route.SEARCH, True, "web")
+
+        # ---------------------------------------------------------
+        # Tools
+        # ---------------------------------------------------------
+
+        if re.match(
+            r"\s*(text|message|tell)\s+\w+",
+            q,
+        ):
+            return RouteResult(Route.TOOL, True, "message")
+
+        if re.search(
+            r"\b("
+            r"start recording"
+            r"|begin recording"
+            r"|stop recording"
+            r"|end recording"
+            r"|where am i"
+            r"|get location"
+            r"|my location"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.TOOL, True)
+
+        # ---------------------------------------------------------
+        # News / current information
+        # ---------------------------------------------------------
+
+        if any(term in q for term in self.news_terms):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "news")
+
+        if any(term in q for term in self.box_office_terms):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+
+        if any(term in q for term in self.release_terms):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+
+        if any(term in q for term in self.office_terms):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+
+        if any(term in q for term in self.current_terms):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+
+        # "last" is extremely important.
+        #
+        # Examples:
+        #   "last song Kendrick featured on"
+        #   "last movie"
+        #   "last celebrity death"
+        #
+        # These are temporal questions even without the word "latest".
+        if re.search(
+            r"\b("
+            r"last"
+            r"|latest"
+            r"|most recent"
+            r")\b",
+            q,
+        ):
+            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+
+        # ---------------------------------------------------------
+        # Normal conversation
+        # ---------------------------------------------------------
+
         return RouteResult(Route.CONVERSATION)

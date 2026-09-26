@@ -1,29 +1,94 @@
 from __future__ import annotations
-import asyncio, logging, sys
+
+import asyncio
+import logging
+
 from quinn.config import load_settings
 from quinn.core.quinn import Quinn
-def configure_logging(level): logging.basicConfig(level=getattr(logging,level.upper(),logging.INFO),format="%(asctime)s %(levelname)s %(name)s %(message)s")
-async def run():
-    settings=load_settings(); configure_logging(settings.log_level); quinn=Quinn(settings)
-    print(f"Quinn online.\nModel: {settings.ollama_model}\nMemory: {'enabled' if settings.memory_enabled else 'disabled'}\nWeb search: {'enabled' if settings.web_search_enabled else 'disabled'}\nType '/exit' to quit.\n")
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+
+async def run() -> None:
+    settings = load_settings()
+    quinn = Quinn(settings)
+
+    print()
+    print("╭──────────────────────────────╮")
+    print("│          QUINN ONLINE        │")
+    print("╰──────────────────────────────╯")
+    print()
+    print(f"LLM: {settings.ollama_model}")
+    print("Type 'exit' or press Ctrl-C to shut down.")
+    print()
+
     try:
         while True:
             try:
-                # Some Python/PTY combinations cannot read a pipe from an executor
-                # thread. Keep interactive input non-blocking for the event loop,
-                # while making redirected input reliable for automation.
-                if sys.stdin.isatty(): text=await asyncio.to_thread(input,"You: ")
-                else:
-                    print("You: ",end="",flush=True); text=sys.stdin.readline().rstrip("\n")
-            except EOFError:break
-            if not text and not sys.stdin.isatty(): break
-            if text.strip().lower() in {"/exit","exit","quit"}:break
-            if text.strip()=="/status":print("Quinn:",quinn.status());continue
-            if text.strip()=="/memory":
-                items=quinn.memory.list(); print("Quinn:", "No saved memories." if not items else "\n".join(f"- {x['content']} ({x['id']})" for x in items));continue
-            if text.strip()=="/clear":quinn.context.clear();print("Quinn: Conversation cleared.");continue
-            response=await quinn.handle(text)
-            if response:print("Quinn:",response)
-    finally: await quinn.shutdown()
-def main(): asyncio.run(run())
-if __name__=="__main__":main()
+                text = input("You: ")
+            except EOFError:
+                print()
+                break
+            except KeyboardInterrupt:
+                print()
+                break
+
+            text = text.strip()
+
+            if not text:
+                continue
+
+            if text.lower() in {
+                "exit",
+                "quit",
+                "shutdown",
+            }:
+                break
+
+            try:
+                answer = await quinn.handle(text)
+
+                if answer:
+                    print(f"Quinn: {answer}")
+                    print()
+
+            except KeyboardInterrupt:
+                print()
+                break
+
+            except Exception:
+                logging.getLogger("quinn").exception(
+                    "request_failed"
+                )
+                print(
+                    "Quinn: I hit an internal error handling that."
+                )
+                print()
+
+    finally:
+        print("Shutting Quinn down...")
+
+        try:
+            await quinn.shutdown()
+        except Exception:
+            logging.getLogger("quinn").exception(
+                "shutdown_failed"
+            )
+
+        print("Quinn offline.")
+
+
+def main() -> None:
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        # Final safety net: don't print an asyncio traceback.
+        print("\nQuinn offline.")
+
+
+if __name__ == "__main__":
+    main()
