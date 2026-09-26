@@ -30,9 +30,11 @@ async def run() -> None:
         while True:
             try:
                 text = input("You: ")
+
             except EOFError:
                 print()
                 break
+
             except KeyboardInterrupt:
                 print()
                 break
@@ -50,10 +52,14 @@ async def run() -> None:
                 break
 
             try:
-                answer = await quinn.handle(text)
+                answer = await quinn.handle(
+                    text
+                )
 
                 if answer:
-                    print(f"Quinn: {answer}")
+                    print(
+                        f"Quinn: {answer}"
+                    )
                     print()
 
             except KeyboardInterrupt:
@@ -61,11 +67,15 @@ async def run() -> None:
                 break
 
             except Exception:
-                logging.getLogger("quinn").exception(
+                logging.getLogger(
+                    "quinn"
+                ).exception(
                     "request_failed"
                 )
+
                 print(
-                    "Quinn: I hit an internal error handling that."
+                    "Quinn: I hit an internal error "
+                    "handling that."
                 )
                 print()
 
@@ -74,8 +84,11 @@ async def run() -> None:
 
         try:
             await quinn.shutdown()
+
         except Exception:
-            logging.getLogger("quinn").exception(
+            logging.getLogger(
+                "quinn"
+            ).exception(
                 "shutdown_failed"
             )
 
@@ -85,9 +98,12 @@ async def run() -> None:
 def main() -> None:
     try:
         asyncio.run(run())
+
     except KeyboardInterrupt:
-        # Final safety net: don't print an asyncio traceback.
-        print("\nQuinn offline.")
+        # Python 3.14 can propagate KeyboardInterrupt from
+        # asyncio.run() even after the coroutine has cleaned up.
+        # Keep the terminal clean.
+        pass
 
 
 if __name__ == "__main__":

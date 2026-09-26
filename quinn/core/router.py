@@ -26,12 +26,10 @@ class RouteResult:
 
 class Router:
     """
-    Quinn's deterministic first-pass intent router.
+    Deterministic first-pass intent router for Quinn.
 
-    Important:
-    - This router should err toward SEARCH/CURRENT_INFORMATION when
-      a question is likely to depend on fresh information.
-    - The LLM is NOT responsible for deciding whether it searched.
+    The router handles obvious intents before the LLM gets involved.
+    Current-information requests are deliberately routed toward search.
     """
 
     current_terms = (
@@ -59,6 +57,8 @@ class Router:
 
     news_terms = (
         "news",
+        "headlines",
+        "articles",
         "controversy",
         "controversial",
         "what happened",
@@ -151,7 +151,9 @@ class Router:
             r"|cancel"
             r"|wait"
             r"|give me a minute"
+            r"|give me a second"
             r"|hold on"
+            r"|hang on"
             r"|don't answer yet"
             r"|do not answer yet"
             r"|keep listening"
@@ -160,7 +162,10 @@ class Router:
             r")\b",
             q,
         ):
-            return RouteResult(Route.SYSTEM_COMMAND, True)
+            return RouteResult(
+                Route.SYSTEM_COMMAND,
+                True,
+            )
 
         # ---------------------------------------------------------
         # Emergency
@@ -174,7 +179,11 @@ class Router:
             r")\b",
             q,
         ):
-            return RouteResult(Route.EMERGENCY, True, "stop")
+            return RouteResult(
+                Route.EMERGENCY,
+                True,
+                "stop",
+            )
 
         if re.search(
             r"\b("
@@ -185,38 +194,78 @@ class Router:
             r")\b",
             q,
         ):
-            return RouteResult(Route.EMERGENCY, True, "start")
+            return RouteResult(
+                Route.EMERGENCY,
+                True,
+                "start",
+            )
 
         if "emergency" in q:
-            return RouteResult(Route.EMERGENCY, False, "ambiguous")
+            return RouteResult(
+                Route.EMERGENCY,
+                False,
+                "ambiguous",
+            )
 
         # ---------------------------------------------------------
-        # Memory
+        # Memory write
         # ---------------------------------------------------------
 
         if re.match(
             r"\s*(remember|don't forget|keep in mind)\b",
             q,
         ):
-            return RouteResult(Route.MEMORY_WRITE, True)
+            return RouteResult(
+                Route.MEMORY_WRITE,
+                True,
+            )
 
-        if re.match(r"\s*forget\b", q):
-            return RouteResult(Route.MEMORY_DELETE, True)
+        # ---------------------------------------------------------
+        # Memory delete
+        # ---------------------------------------------------------
 
-        if re.search(
-            r"\b("
-            r"what do you remember"
-            r"|what do you know about me"
-            r"|what have you remembered"
-            r"|what have you saved"
-            r"|my memories"
-            r"|show my memories"
-            r"|list my memories"
-            r"|what memories do you have"
-            r")\b",
+        if re.match(
+            r"\s*forget\b",
             q,
         ):
-            return RouteResult(Route.MEMORY_READ, True)
+            return RouteResult(
+                Route.MEMORY_DELETE,
+                True,
+            )
+
+        # ---------------------------------------------------------
+        # Memory read
+        #
+        # Include natural-language variants. This MUST happen before
+        # generic search/current-information detection.
+        # ---------------------------------------------------------
+
+        memory_read_patterns = (
+            r"\bwhat do you remember\b",
+            r"\bwhat do you know about me\b",
+            r"\bwhat do you even know about me\b",
+            r"\bhow much do you know about me\b",
+            r"\bwhat have you remembered\b",
+            r"\bwhat have you saved\b",
+            r"\bwhat have you learned about me\b",
+            r"\btell me what you remember\b",
+            r"\btell me what you know about me\b",
+            r"\bwhat memories do you have\b",
+            r"\bwhat do you have saved about me\b",
+            r"\bwhat is saved about me\b",
+            r"\bmy memories\b",
+            r"\bshow my memories\b",
+            r"\blist my memories\b",
+        )
+
+        if any(
+            re.search(pattern, q)
+            for pattern in memory_read_patterns
+        ):
+            return RouteResult(
+                Route.MEMORY_READ,
+                True,
+            )
 
         # ---------------------------------------------------------
         # Explicit search
@@ -235,12 +284,27 @@ class Router:
             q,
         ):
             if "wikipedia" in q:
-                return RouteResult(Route.SEARCH, True, "wikipedia")
+                return RouteResult(
+                    Route.SEARCH,
+                    True,
+                    "wikipedia",
+                )
 
-            if re.search(r"\b(news|headlines|articles)\b", q):
-                return RouteResult(Route.SEARCH, True, "news")
+            if re.search(
+                r"\b(news|headlines|articles)\b",
+                q,
+            ):
+                return RouteResult(
+                    Route.SEARCH,
+                    True,
+                    "news",
+                )
 
-            return RouteResult(Route.SEARCH, True, "web")
+            return RouteResult(
+                Route.SEARCH,
+                True,
+                "web",
+            )
 
         # ---------------------------------------------------------
         # Tools
@@ -250,7 +314,11 @@ class Router:
             r"\s*(text|message|tell)\s+\w+",
             q,
         ):
-            return RouteResult(Route.TOOL, True, "message")
+            return RouteResult(
+                Route.TOOL,
+                True,
+                "message",
+            )
 
         if re.search(
             r"\b("
@@ -264,47 +332,76 @@ class Router:
             r")\b",
             q,
         ):
-            return RouteResult(Route.TOOL, True)
+            return RouteResult(
+                Route.TOOL,
+                True,
+            )
 
         # ---------------------------------------------------------
         # News / current information
         # ---------------------------------------------------------
 
-        if any(term in q for term in self.news_terms):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "news")
+        if any(
+            term in q
+            for term in self.news_terms
+        ):
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "news",
+            )
 
-        if any(term in q for term in self.box_office_terms):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+        if any(
+            term in q
+            for term in self.box_office_terms
+        ):
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "web",
+            )
 
-        if any(term in q for term in self.release_terms):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+        if any(
+            term in q
+            for term in self.release_terms
+        ):
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "web",
+            )
 
-        if any(term in q for term in self.office_terms):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+        if any(
+            term in q
+            for term in self.office_terms
+        ):
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "web",
+            )
 
-        if any(term in q for term in self.current_terms):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+        if any(
+            term in q
+            for term in self.current_terms
+        ):
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "web",
+            )
 
-        # "last" is extremely important.
-        #
-        # Examples:
-        #   "last song Kendrick featured on"
-        #   "last movie"
-        #   "last celebrity death"
-        #
-        # These are temporal questions even without the word "latest".
+        # "last" is temporal too.
         if re.search(
-            r"\b("
-            r"last"
-            r"|latest"
-            r"|most recent"
-            r")\b",
+            r"\b(last|latest|most recent)\b",
             q,
         ):
-            return RouteResult(Route.CURRENT_INFORMATION, False, "web")
+            return RouteResult(
+                Route.CURRENT_INFORMATION,
+                False,
+                "web",
+            )
 
-        # ---------------------------------------------------------
-        # Normal conversation
-        # ---------------------------------------------------------
-
-        return RouteResult(Route.CONVERSATION)
+        return RouteResult(
+            Route.CONVERSATION
+        )

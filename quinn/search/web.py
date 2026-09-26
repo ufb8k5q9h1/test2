@@ -23,7 +23,9 @@ class SearchResult:
     @property
     def domain(self) -> str:
         try:
-            return urlparse(self.url).netloc.removeprefix("www.")
+            return urlparse(
+                self.url
+            ).netloc.removeprefix("www.")
         except Exception:
             return self.source
 
@@ -127,6 +129,8 @@ class DuckDuckGoSearch:
             )
             raise
 
+        results = self._deduplicate(results)
+
         log.info(
             "web_search_complete",
             extra={
@@ -182,6 +186,8 @@ class DuckDuckGoSearch:
                 extra={"query": query},
             )
             raise
+
+        results = self._deduplicate(results)
 
         log.info(
             "news_search_complete",
@@ -240,6 +246,8 @@ class DuckDuckGoSearch:
             )
             raise
 
+        results = self._deduplicate(results)
+
         log.info(
             "wikipedia_search_complete",
             extra={
@@ -274,7 +282,9 @@ class DuckDuckGoSearch:
         published = item.get("date")
 
         if published is not None:
-            published = str(published).strip() or None
+            published = str(
+                published
+            ).strip() or None
 
         if not title and not snippet:
             return None
@@ -297,3 +307,28 @@ class DuckDuckGoSearch:
             published=published,
             kind=kind,
         )
+
+    # =============================================================
+    # Deduplication
+    # =============================================================
+
+    @staticmethod
+    def _deduplicate(
+        results: list[SearchResult],
+    ) -> list[SearchResult]:
+        seen: set[str] = set()
+        unique: list[SearchResult] = []
+
+        for result in results:
+            key = (
+                result.url
+                or f"{result.title}|{result.snippet}"
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            unique.append(result)
+
+        return unique
